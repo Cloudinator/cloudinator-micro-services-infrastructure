@@ -1,0 +1,26 @@
+---
+- name: Deploy microservice with HTTPS to Kubernetes
+  hosts: kube_servers
+  become: yes
+  tasks:
+    - name: Copy shell script to Kubernetes server
+      copy:
+        src: ../scripts/deploy-microservice.sh
+        dest: /root/cloudinator/deploy-microservice.sh
+        mode: '0755'
+
+    - name: Execute the shell script with dynamic variables
+      command: >
+        bash /root/cloudinator/deploy-microservice.sh 
+        {{ SERVICE_NAME }} 
+        {{ IMAGE }} 
+        {{ NAMESPACE }} 
+        {{ FILE_Path }} 
+        {{ DOMAIN_NAME }} 
+        {{ EMAIL }}
+        {{ PORT }}
+        {% if EUREKA_ROLE is defined %}{{ EUREKA_ROLE }}{% endif %}
+        {% if CONFIG_REPO is defined %}{{ CONFIG_REPO }}{% endif %}
+        {% if GATEWAY_ROUTES is defined %}{{ GATEWAY_ROUTES }}{% endif %}
+        {% if EUREKA_CLIENT is defined %}{{ EUREKA_CLIENT }}{% endif %}
+

@@ -1,0 +1,88 @@
+@Library('cloudinator-microservices') _
+
+pipeline {
+    agent any
+    environment {
+        GITHUB_TOKEN = credentials('github-token')
+        DOCKER_CREDENTIALS_ID = 'docker'
+        GIT_INFRA_URL = 'https://github.com/your-org/infra-microservices.git'
+        INVENTORY_FILE = 'inventory/inventory.ini'
+        PLAYBOOK_FILE = 'playbooks/deploy-microservices.yml'
+        HELM_FILE = "playbooks/setup-helm-microservices.yml"
+        NAMESPACE = "microservices"
+        EMAIL = "your-email@example.com"
+        TRIVY_SEVERITY = "HIGH,CRITICAL"
+        TRIVY_EXIT_CODE = "0"
+        TRIVY_IGNORE_UNFIXED = "true"
+        VULN_THRESHOLD = "5"
+    }
+    parameters {
+        string(name: 'SERVICES', defaultValue: '', description: 'Comma-separated list of services to deploy')
+    }
+    stages {
+        stage('Checkout Infra') {
+            steps {
+                git branch: 'main', url: env.GIT_INFRA_URL
+            }
+        }
+        stage('Deploy Microservices') {
+            steps {
+                script {
+                    def services = params.SERVICES.split(',')
+                    services.each { service ->
+                        stage("Deploy ${service}") {
+                            deployMicroservice(service)
+                        }
+                    }
+                }
+            }
+        }
+        stage('Setup Helm for Microservices') {
+            steps {
+                setUpHelmMicroservices(
+                    INVENTORY_FILE,
+                    HELM_FILE,
+                    NAMESPACE,
+                    params.SERVICES
+                )
+            }
+        }
+    }
+}
+
+def deployMicroservice(String serviceName) {
+    def gitRepoUrl = "https://github.com/your-org/${serviceName}.git"
+    def dockerImageName = "your-registry/${serviceName}"
+    def dockerImageTag = "${BUILD_NUMBER}"
+    
+    checkout([$class: 'GitSCM', branches: [[name: '*/main']], userRemoteConfigs: [[url: gitRepoUrl]]])
+    
+    def projectInfo = detectProjectType("${env.WORKSPACE}")
+    
+    updateDependencies()
+    
+    withCredentials([usernamePassword(credentialsId: DOCKER_CREDENTIALS_ID, usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PWD')]) {
+        sh "echo $DOCKER_PWD | docker login -u $DOCKER_USER --password-stdin"
+    }
+    
+    dockerBuild(dockerImageName, dockerImageTag)
+    
+    trivyScan(dockerImageName, dockerImageTag, TRIVY_SEVERITY, TRIVY_EXIT_CODE, TRIVY_IGNORE_UNFIXED, VULN_THRESHOLD.toInteger())
+    
+    dockerPush(dockerImageName, dockerImageTag)
+    
+    deployToKubernetes(
+        INVENTORY_FILE,
+        PLAYBOOK_FILE,
+        serviceName,
+        "${dockerImageName}:${dockerImageTag}",
+        NAMESPACE,
+        "deployments/${serviceName}",
+        "${serviceName}.your-domain.com",
+        EMAIL,
+        gitRepoUrl
+    )
+    
+    createGitHubWebhook(gitRepoUrl, "${env.JENKINS_URL}/github-webhook/", GITHUB_TOKEN)
+}
+

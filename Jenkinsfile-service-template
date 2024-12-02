@@ -1,0 +1,130 @@
+@Library('cloudinator-microservices') _
+
+def SERVICE_NAME = 'replace_with_service_name'
+def GIT_REPO_URL = "https://github.com/your-org/${SERVICE_NAME}.git"
+def DEPENDENCIES = ['replace_with_comma_separated_dependencies']
+
+pipeline {
+    agent any
+    environment {
+        GITHUB_TOKEN = credentials('github-token')
+        DOCKER_CREDENTIALS_ID = 'docker'
+        GIT_INFRA_URL = 'https://github.com/your-org/infra-microservices.git'
+        INVENTORY_FILE = 'inventory/inventory.ini'
+        PLAYBOOK_FILE = 'playbooks/deploy-microservice.yml'
+        HELM_FILE = "playbooks/setup-helm-microservice.yml"
+        NAMESPACE = "microservices"
+        EMAIL = "your-email@example.com"
+        TRIVY_SEVERITY = "HIGH,CRITICAL"
+        TRIVY_EXIT_CODE = "0"
+        TRIVY_IGNORE_UNFIXED = "true"
+        VULN_THRESHOLD = "5"
+        DOCKER_IMAGE_NAME = "your-registry/${SERVICE_NAME}"
+        DOCKER_IMAGE_TAG = "${BUILD_NUMBER}"
+    }
+    stages {
+        stage('Check Dependencies') {
+            steps {
+                script {
+                    checkDependencies(DEPENDENCIES)
+                }
+            }
+        }
+        stage('Checkout') {
+            steps {
+                git branch: 'main', url: GIT_REPO_URL
+            }
+        }
+        stage('Generate Dockerfile') {
+            steps {
+                script {
+                    projectInfo = detectProjectType("${env.WORKSPACE}")
+                }
+            }
+        }
+        stage('Update Dependencies') {
+            steps {
+                script {
+                    updateDependencies()
+                }
+            }
+        }
+        stage('Docker Login') {
+            steps {
+                script {
+                    withCredentials([usernamePassword(credentialsId: DOCKER_CREDENTIALS_ID, usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PWD')]) {
+                        sh "echo $DOCKER_PWD | docker login -u $DOCKER_USER --password-stdin"
+                    }
+                }
+            }
+        }
+        stage('Build Docker Image') {
+            steps {
+                script {
+                    dockerBuild("${DOCKER_IMAGE_NAME}", "${DOCKER_IMAGE_TAG}")
+                }
+            }
+        }
+        stage('Trivy Scan') {
+            steps {
+                script {
+                    def vulnerabilitiesCount = trivyScan(
+                        DOCKER_IMAGE_NAME,
+                        DOCKER_IMAGE_TAG,
+                        TRIVY_SEVERITY,
+                        TRIVY_EXIT_CODE,
+                        TRIVY_IGNORE_UNFIXED,
+                        VULN_THRESHOLD.toInteger()
+                    )
+                    echo "Total vulnerabilities found: ${vulnerabilitiesCount}"
+                }
+            }
+        }
+        stage('Push Image to Registry') {
+            steps {
+                script {
+                    dockerPush("${DOCKER_IMAGE_NAME}", "${DOCKER_IMAGE_TAG}")
+                }
+            }
+        }
+        stage('Deploy to Kubernetes') {
+            steps {
+                script {
+                    deployToKubernetes(
+                        INVENTORY_FILE,
+                        PLAYBOOK_FILE,
+                        SERVICE_NAME,
+                        "${DOCKER_IMAGE_NAME}:${DOCKER_IMAGE_TAG}",
+                        NAMESPACE,
+                        "deployments/${SERVICE_NAME}",
+                        "${SERVICE_NAME}.your-domain.com",
+                        EMAIL,
+                        GIT_REPO_URL
+                    )
+                }
+            }
+        }
+        stage('Setup Helm') {
+            steps {
+                setUpHelm(
+                    INVENTORY_FILE,
+                    HELM_FILE,
+                    SERVICE_NAME,
+                    DOCKER_IMAGE_NAME,
+                    NAMESPACE,
+                    DOCKER_IMAGE_TAG,
+                    "${SERVICE_NAME}.your-domain.com",
+                    GIT_REPO_URL
+                )
+            }
+        }
+        stage('Setup GitHub Webhook') {
+            steps {
+                script {
+                    createGitHubWebhook(GIT_REPO_URL, "${env.JENKINS_URL}/github-webhook/", GITHUB_TOKEN)
+                }
+            }
+        }
+    }
+}
+
