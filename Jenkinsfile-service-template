@@ -1,15 +1,15 @@
 @Library('cloudinator-microservices') _
 
-def SERVICE_NAME = 'replace_with_service_name'
-def GIT_REPO_URL = "https://github.com/your-org/${SERVICE_NAME}.git"
-def DEPENDENCIES = ['replace_with_comma_separated_dependencies']
+def SERVICE_NAME = 'config-server'
+def GIT_REPO_URL = "https://github.com/devoneone/config.git"
+def DEPENDENCIES = []
 
 pipeline {
     agent any
     environment {
-        GITHUB_TOKEN = credentials('github-token')
+        GITHUB_TOKEN = "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"
         DOCKER_CREDENTIALS_ID = 'docker'
-        GIT_INFRA_URL = 'https://github.com/your-org/infra-microservices.git'
+        GIT_INFRA_URL = 'https://github.com/devoneone/micro-services-infra.git'
         INVENTORY_FILE = 'inventory/inventory.ini'
         PLAYBOOK_FILE = 'playbooks/deploy-microservice.yml'
         HELM_FILE = "playbooks/setup-helm-microservice.yml"
@@ -19,17 +19,17 @@ pipeline {
         TRIVY_EXIT_CODE = "0"
         TRIVY_IGNORE_UNFIXED = "true"
         VULN_THRESHOLD = "5"
-        DOCKER_IMAGE_NAME = "your-registry/${SERVICE_NAME}"
+        DOCKER_IMAGE_NAME = "sovanra/${SERVICE_NAME}"
         DOCKER_IMAGE_TAG = "${BUILD_NUMBER}"
     }
     stages {
-        stage('Check Dependencies') {
-            steps {
-                script {
-                    checkDependencies(DEPENDENCIES)
-                }
-            }
-        }
+        // stage('Check Dependencies') {
+        //     steps {
+        //         script {
+        //             checkDependencies(DEPENDENCIES)
+        //         }
+        //     }
+        // }
         stage('Checkout') {
             steps {
                 git branch: 'main', url: GIT_REPO_URL
@@ -42,18 +42,18 @@ pipeline {
                 }
             }
         }
-        stage('Update Dependencies') {
-            steps {
-                script {
-                    updateDependencies()
-                }
-            }
-        }
+        // stage('Update Dependencies') {
+        //     steps {
+        //         script {
+        //             updateDependencies()
+        //         }
+        //     }
+        // }
         stage('Docker Login') {
             steps {
                 script {
-                    withCredentials([usernamePassword(credentialsId: DOCKER_CREDENTIALS_ID, usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PWD')]) {
-                        sh "echo $DOCKER_PWD | docker login -u $DOCKER_USER --password-stdin"
+                    withCredentials([string(credentialsId: 'docker', variable: 'DOCKER_PWD')]) {
+                        sh "echo $DOCKER_PWD | docker login -u sovanra --password-stdin"
                     }
                 }
             }
@@ -85,6 +85,11 @@ pipeline {
                 script {
                     dockerPush("${DOCKER_IMAGE_NAME}", "${DOCKER_IMAGE_TAG}")
                 }
+            }
+        }
+        stage('Clone infra') {
+            steps {
+                git branch: 'main', url: GIT_INFRA_URL
             }
         }
         stage('Deploy to Kubernetes') {

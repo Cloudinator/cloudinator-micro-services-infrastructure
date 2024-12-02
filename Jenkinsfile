@@ -3,7 +3,7 @@
 pipeline {
     agent any
     parameters {
-        string(name: 'SERVICES', defaultValue: 'eureka,config-server,service1,service2,service3,gateway', description: 'Comma-separated list of services to deploy in order')
+        string(name: 'SERVICES', defaultValue: 'config-server,eureka-server', description: 'Comma-separated list of services to deploy in order')
     }
     stages {
         stage('Deploy Microservices') {
@@ -25,4 +25,3 @@ pipeline {
         }
     }
 }
-
