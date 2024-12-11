@@ -81,7 +81,7 @@ EOF
 
 # Add service-specific configurations
 case ${SERVICE_NAME} in
-  eureka)
+  eureka-service)
     cat <<EOF >> ${SERVICE_NAME}-deployment.yaml
         - name: EUREKA_INSTANCE_PREFERIPADDRESS
           value: "true"
@@ -97,17 +97,19 @@ EOF
           value: "${CONFIG_REPO}"
 EOF
     ;;
-  gateway)
+  gateway-service)
     cat <<EOF >> ${SERVICE_NAME}-deployment.yaml
-        - name: SPRING_CLOUD_GATEWAY_ROUTES
-          value: "${GATEWAY_ROUTES}"
+        - name: EUREKA_CLIENT_SERVICEURL_DEFAULTZONE
+          value: "http://eureka-service.eureka-service.svc.cluster.local:8761/eureka/"
+        - name: SPRING_CLOUD_GATEWAY_DISCOVERY_LOCATOR_ENABLED
+          value: "true"
 EOF
     ;;
   *)
     if [ "${EUREKA_CLIENT}" = "true" ]; then
       cat <<EOF >> ${SERVICE_NAME}-deployment.yaml
         - name: EUREKA_CLIENT_SERVICEURL_DEFAULTZONE
-          value: "http://eureka.${NAMESPACE}.svc.cluster.local:8761/eureka/"
+          value: "http://eureka-service.eureka-service.svc.cluster.local:8761/eureka/"
 EOF
     fi
     ;;
@@ -121,7 +123,6 @@ metadata:
   name: ${SERVICE_NAME}
   namespace: ${NAMESPACE}
 spec:
-  type: ClusterIP
   selector:
     app: ${SERVICE_NAME}
   ports:
@@ -169,13 +170,13 @@ echo "Deployment, Service, and Ingress for ${SERVICE_NAME} created successfully 
 
 # Additional service-specific configurations
 case ${SERVICE_NAME} in
-  eureka)
+  eureka-service)
     echo "Eureka server deployed. Ensure other services are configured to use it."
     ;;
   config-server)
     echo "Config server deployed. Verify Git repository connectivity."
     ;;
-  gateway)
+  gateway-service)
     echo "API Gateway deployed. Verify route configurations."
     ;;
   *)
@@ -187,4 +188,3 @@ esac
 kubectl rollout status deployment/${SERVICE_NAME} -n ${NAMESPACE} --timeout=300s
 
 echo "Deployment of ${SERVICE_NAME} completed."
-
