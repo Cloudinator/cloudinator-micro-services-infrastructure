@@ -1,36 +1,37 @@
 #!/bin/bash
 
-# Input variables
-SERVICE_NAME=$1
-IMAGE=$2
-NAMESPACE=${3:-default}
-FILE_Path=$4
-DOMAIN_NAME=$5
-EMAIL=$6
-PORT=$7
-EUREKA_ROLE=$8
-CONFIG_REPO=$9
-GATEWAY_ROUTES=${10}
-EUREKA_CLIENT=${11}
-
-# Check if required variables are provided
-if [ -z "$SERVICE_NAME" ] || [ -z "$IMAGE" ] || [ -z "$DOMAIN_NAME" ] || [ -z "$EMAIL" ] || [ -z "$PORT" ]; then
-  echo "Usage: $0 <SERVICE_NAME> <IMAGE> [NAMESPACE] <FILE_Path> <DOMAIN_NAME> <EMAIL> <PORT> [EUREKA_ROLE] [CONFIG_REPO] [GATEWAY_ROUTES] [EUREKA_CLIENT]"
+# Function to display usage
+usage() {
+  echo "Usage: $0 <SERVICE_NAME> <IMAGE> [NAMESPACE] <FILE_PATH> <DOMAIN_NAME> <EMAIL> <PORT> [EUREKA_ROLE] [CONFIG_REPO] [GATEWAY_ROUTES] [EUREKA_CLIENT]"
   exit 1
-fi
+}
+
+# Validate required inputs
+validate_inputs() {
+  if [ -z "$SERVICE_NAME" ] || [ -z "$IMAGE" ] || [ -z "$DOMAIN_NAME" ] || [ -z "$EMAIL" ] || [ -z "$PORT" ]; then
+    usage
+  fi
+}
 
 # Create namespace if it doesn't exist
-kubectl create ns ${NAMESPACE} --dry-run=client -o yaml | kubectl apply -f -
+create_namespace() {
+  if ! kubectl get ns $NAMESPACE &> /dev/null; then
+    kubectl create ns $NAMESPACE
+  fi
+}
 
 # Install cert-manager if not already installed
-if ! kubectl get namespace cert-manager &> /dev/null; then
-  kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.8.0/cert-manager.yaml
-  kubectl wait --for=condition=ready pod -l app.kubernetes.io/instance=cert-manager -n cert-manager --timeout=120s
-fi
+install_cert_manager() {
+  if ! kubectl get namespace cert-manager &> /dev/null; then
+    kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.8.0/cert-manager.yaml
+    kubectl wait --for=condition=ready pod -l app.kubernetes.io/instance=cert-manager -n cert-manager --timeout=120s
+  fi
+}
 
-# Create ClusterIssuer for Let's Encrypt if not exists
-if ! kubectl get clusterissuer letsencrypt-prod &> /dev/null; then
-  cat <<EOF | kubectl apply -f -
+# Create ClusterIssuer for Let's Encrypt
+create_cluster_issuer() {
+  if ! kubectl get clusterissuer letsencrypt-prod &> /dev/null; then
+    cat <<EOF | kubectl apply -f -
 apiVersion: cert-manager.io/v1
 kind: ClusterIssuer
 metadata:
@@ -46,14 +47,12 @@ spec:
         ingress:
           class: nginx
 EOF
-fi
+  fi
+}
 
-# Prepare directory for manifest files
-mkdir -p /root/cloudinator/${FILE_Path}
-cd /root/cloudinator/${FILE_Path}
-
-# Create a Kubernetes deployment and service manifest
-cat <<EOF > ${SERVICE_NAME}-deployment.yaml
+# Generate deployment and service manifest
+create_deployment_manifest() {
+  cat <<EOF > ${SERVICE_NAME}-deployment.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -79,10 +78,9 @@ spec:
           value: "kubernetes"
 EOF
 
-# Add service-specific configurations
-case ${SERVICE_NAME} in
-  eureka-service)
-    cat <<EOF >> ${SERVICE_NAME}-deployment.yaml
+  case ${SERVICE_NAME} in
+    eureka-service)
+      cat <<EOF >> ${SERVICE_NAME}-deployment.yaml
         - name: EUREKA_INSTANCE_PREFERIPADDRESS
           value: "true"
         - name: EUREKA_CLIENT_REGISTERWITHEUREKA
@@ -90,32 +88,32 @@ case ${SERVICE_NAME} in
         - name: EUREKA_CLIENT_FETCHREGISTRY
           value: "false"
 EOF
-    ;;
-  config-server)
-    cat <<EOF >> ${SERVICE_NAME}-deployment.yaml
+      ;;
+    config-server)
+      cat <<EOF >> ${SERVICE_NAME}-deployment.yaml
         - name: SPRING_CLOUD_CONFIG_SERVER_GIT_URI
           value: "${CONFIG_REPO}"
 EOF
-    ;;
-  gateway-service)
-    cat <<EOF >> ${SERVICE_NAME}-deployment.yaml
+      ;;
+    gateway-service)
+      cat <<EOF >> ${SERVICE_NAME}-deployment.yaml
         - name: EUREKA_CLIENT_SERVICEURL_DEFAULTZONE
           value: "http://eureka-service.eureka-service.svc.cluster.local:8761/eureka/"
         - name: SPRING_CLOUD_GATEWAY_DISCOVERY_LOCATOR_ENABLED
           value: "true"
 EOF
-    ;;
-  *)
-    if [ "${EUREKA_CLIENT}" = "true" ]; then
-      cat <<EOF >> ${SERVICE_NAME}-deployment.yaml
+      ;;
+    *)
+      if [ "${EUREKA_CLIENT}" = "true" ]; then
+        cat <<EOF >> ${SERVICE_NAME}-deployment.yaml
         - name: EUREKA_CLIENT_SERVICEURL_DEFAULTZONE
           value: "http://eureka-service.eureka-service.svc.cluster.local:8761/eureka/"
 EOF
-    fi
-    ;;
-esac
+      fi
+      ;;
+  esac
 
-cat <<EOF >> ${SERVICE_NAME}-deployment.yaml
+  cat <<EOF >> ${SERVICE_NAME}-deployment.yaml
 ---
 apiVersion: v1
 kind: Service
@@ -130,12 +128,12 @@ spec:
       port: 80
       targetPort: ${PORT}
 EOF
+  kubectl apply -f ${SERVICE_NAME}-deployment.yaml
+}
 
-# Apply deployment and service
-kubectl apply -f ${SERVICE_NAME}-deployment.yaml
-
-# Create an Ingress manifest with TLS
-cat <<EOF > ${SERVICE_NAME}-ingress.yaml
+# Generate ingress manifest
+create_ingress_manifest() {
+  cat <<EOF > ${SERVICE_NAME}-ingress.yaml
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -161,14 +159,37 @@ spec:
             port:
               number: 80
 EOF
+  kubectl apply -f ${SERVICE_NAME}-ingress.yaml
+}
 
-# Apply Ingress
-kubectl apply -f ${SERVICE_NAME}-ingress.yaml
+# Main execution
+SERVICE_NAME=$1
+IMAGE=$2
+NAMESPACE=${3:-default}
+FILE_PATH=$4
+DOMAIN_NAME=$5
+EMAIL=$6
+PORT=$7
+EUREKA_ROLE=$8
+CONFIG_REPO=$9
+GATEWAY_ROUTES=${10}
+EUREKA_CLIENT=${11}
 
-# Output success message
-echo "Deployment, Service, and Ingress for ${SERVICE_NAME} created successfully in namespace ${NAMESPACE} with HTTPS enabled."
+validate_inputs
+create_namespace
+install_cert_manager
+create_cluster_issuer
 
-# Additional service-specific configurations
+mkdir -p /root/cloudinator/${FILE_PATH}
+cd /root/cloudinator/${FILE_PATH}
+
+create_deployment_manifest
+create_ingress_manifest
+
+# Wait for deployment to be ready
+kubectl rollout status deployment/${SERVICE_NAME} -n ${NAMESPACE} --timeout=300s
+
+# Final message
 case ${SERVICE_NAME} in
   eureka-service)
     echo "Eureka server deployed. Ensure other services are configured to use it."
@@ -183,8 +204,5 @@ case ${SERVICE_NAME} in
     echo "Service ${SERVICE_NAME} deployed successfully."
     ;;
 esac
-
-# Wait for deployment to be ready
-kubectl rollout status deployment/${SERVICE_NAME} -n ${NAMESPACE} --timeout=300s
 
 echo "Deployment of ${SERVICE_NAME} completed."
