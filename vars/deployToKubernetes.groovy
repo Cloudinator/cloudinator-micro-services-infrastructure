@@ -194,11 +194,11 @@ def readSpringBootPortFromYaml(String projectPath) {
 
     try {
         def yamlContent = readFile(file: yamlFilePath)
-        def yaml = new YamlSlurper().parseText(yamlContent)
+        def port = extractPortFromYaml(yamlContent)
 
-        if (yaml?.server?.port) {
-            echo "Port found in application.yml: ${yaml.server.port}"
-            return yaml.server.port
+        if (port) {
+            echo "Port found in application.yml: ${port}"
+            return port.toInteger()
         } else {
             echo "Port not defined in application.yml, using default port: ${defaultPort}"
         }
@@ -208,4 +208,14 @@ def readSpringBootPortFromYaml(String projectPath) {
 
     return defaultPort
 }
+
+def extractPortFromYaml(String yamlContent) {
+    // A simple regex to extract the port value from YAML
+    def match = yamlContent =~ /(?m)^\s*server:\s*\n\s*port:\s*(\d+)/
+    if (match) {
+        return match[0][1]
+    }
+    return null
+}
+
 
