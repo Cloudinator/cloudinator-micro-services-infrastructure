@@ -123,13 +123,6 @@ pipeline {
                 )
             }
         }
-        stage('Setup GitHub Webhook') {
-            steps {
-                script {
-                    createGitHubWebhook(GIT_REPO_URL, "${env.JENKINS_URL}/github-webhook/", GITHUB_TOKEN)
-                }
-            }
-        }
     }
 }
 
