@@ -6,12 +6,12 @@
     - name: Copy shell set-up helm script to Kubernetes server
       copy:
         src: ../scripts/helm-setup-microservice.sh
-        dest: /home/sen/cloudinator/helm-setup-microservice.sh
+        dest: /home/asura/cloudinator/helm-setup-microservice.sh
         mode: '0755'
 
     - name: Execute the shell script for set up helm chart
       command: >
-        bash /home/sen/cloudinator/helm-setup-microservice.sh 
+        bash /home/asura/cloudinator/helm-setup-microservice.sh 
         {{ CHART_NAME }} 
         {{ IMAGE }} 
         {{ TAG }} 

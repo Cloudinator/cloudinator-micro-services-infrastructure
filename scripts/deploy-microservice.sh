@@ -20,35 +20,7 @@ create_namespace() {
   fi
 }
 
-# Install cert-manager if not already installed
-install_cert_manager() {
-  if ! kubectl get namespace cert-manager &> /dev/null; then
-    kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.8.0/cert-manager.yaml
-    kubectl wait --for=condition=ready pod -l app.kubernetes.io/instance=cert-manager -n cert-manager --timeout=120s
-  fi
-}
 
-# Create ClusterIssuer for Let's Encrypt
-create_cluster_issuer() {
-  if ! kubectl get clusterissuer letsencrypt-prod &> /dev/null; then
-    cat <<EOF | kubectl apply -f -
-apiVersion: cert-manager.io/v1
-kind: ClusterIssuer
-metadata:
-  name: letsencrypt-prod
-spec:
-  acme:
-    server: https://acme-v02.api.letsencrypt.org/directory
-    email: ${EMAIL}
-    privateKeySecretRef:
-      name: letsencrypt-prod
-    solvers:
-    - http01:
-        ingress:
-          class: nginx
-EOF
-  fi
-}
 
 # Generate deployment and service manifest
 create_deployment_manifest() {
